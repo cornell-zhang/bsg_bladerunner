@@ -1,28 +1,31 @@
-#include "sum_host.hpp"
-#include <string>
-#include <unordered_set>
+#include "sum_host.h"
+#include <string.h>
+//#include <unordered_set>
+#include <bsg_manycore_tile.h>
+#include <bsg_manycore_errno.h>
+#include <bsg_manycore_tile.h>
+#include <bsg_manycore_loader.h>
+#include <bsg_manycore_cuda.h>
 #include <bsg_manycore_regression.h>
 #define ALLOC_NAME "default_allocator"
 
 typedef float data_t;
 
-using namespace std;
+//using namespace std;
 
-int reference_vec_sum(int *vec, int vec_length) {
+void reference_vec_sum(int *host_vec, int* host_result, int input_length) {
   int result = 0;
-  for (int i = 0; i < vec_length; i++) {
-    result += vec[i];
-    vec[i]=0;
-    }
-  vec[0]=result;
-  return 0;
+  for (int i = 0; i < input_length; i++) {
+    result += host_vec[i];
+  }
+  host_result[128] = result;
 }
 
 
 int check_result_correctness(int *A, int *B) {
-    int result = 0; 
-    result += 256 - B[0];
-    return result;
+  int result;
+  result = A[128] - B[128];
+  return result;
 }
 
 int test_sum (int argc, char *argv[]) {
@@ -51,63 +54,62 @@ int test_sum (int argc, char *argv[]) {
   }
 
 
-  int vec_length = 256;
-  int vec_size= sizeof(int) * vec_length;
+  int input_length = 3096;
+  int output_length = 129;
  
- 
-  int* vec_cpy = (int*)malloc(vec_length * sizeof(int));
-  int* host_vec = (int*)malloc(vec_length * sizeof(int));
-  int* hb_vec = (int*)malloc(vec_length * sizeof(int));
-  for (int i = 0; i < vec_length ; i++) {
-      vec_cpy[i] = 1;
+  int* host_vec = (int*)malloc(input_length * sizeof(int));
+  int* hb_vec = (int*)malloc(input_length * sizeof(int));
+  int* host_result = (int*)malloc(output_length * sizeof(int));
+  int* hb_result = (int*)malloc(output_length * sizeof(int));
+  for (int i = 0; i < input_length ; i++) {
       host_vec[i] = 1;
-      hb_vec[i] = 0;
+      hb_vec[i] = 1;
   }
 
   for (int i =0; i < 5; i++) {
-    printf("vector to be copied is is %d\n", vec_cpy[i]);
-}
+    printf("vector to be copied is is %d\n", host_vec[i]);
+  }
 
 
 
-reference_vec_sum(host_vec, vec_length);
+  reference_vec_sum(host_vec, host_result, input_length);
 
 /*-----------------------------------------------------------------------------------------------------*/
 
 //copy the vector to HB//
 
- eva_t vec_cpy_dev;
- eva_t hb_vec_dev;
+  eva_t hb_vec_dev;
+  eva_t hb_result_dev;
   
- err  = hb_mc_device_malloc(&device, vec_size, &vec_cpy_dev);
- if (err != HB_MC_SUCCESS) {
-   printf("failed to allocate memory on device for vec_cpy\n");
+  err  = hb_mc_device_malloc(&device, input_length * sizeof(int), &hb_vec_dev);
+  if (err != HB_MC_SUCCESS) {
+    printf("failed to allocate memory on device for vec_cpy\n");
   }
- printf("start copying vec_cpy to device\n");
- hb_mc_dma_htod_t vec_cpy_dma = {vec_cpy_dev, (void*)(vec_cpy), vec_size};
- err |= hb_mc_device_dma_to_device(&device, &vec_cpy_dma, 1);
+  printf("start copying vec_cpy to device\n");
+  hb_mc_dma_htod_t hb_vec_dma = {hb_vec_dev, (void*)(hb_vec), input_length * sizeof(int)};
+  err |= hb_mc_device_dma_to_device(&device, &hb_vec_dma, 1);
 
 
-err  = hb_mc_device_malloc(&device, vec_size, &hb_vec_dev);
- if (err != HB_MC_SUCCESS) {
-   printf("failed to allocate memory on device for hb_vec.\n");
+  err  = hb_mc_device_malloc(&device, output_length, &hb_result_dev);
+  if (err != HB_MC_SUCCESS) {
+    printf("failed to allocate memory on device for hb_vec.\n");
   }
- printf("start copying hb_vec to device\n");
- hb_mc_dma_htod_t hb_vec_dma = {hb_vec_dev, (void*)(hb_vec), vec_size};
- err |= hb_mc_device_dma_to_device(&device, &hb_vec_dma, 1);
+  printf("start copying hb_vec to device\n");
+  hb_mc_dma_htod_t hb_result_dma = {hb_result_dev, (void*)(hb_result), output_length * sizeof(int)};
+  err |= hb_mc_device_dma_to_device(&device, &hb_result_dma, 1);
 
-  hb_mc_dimension_t grid_dim = { .x = 0, .y = 0};
-  hb_mc_dimension_t tg_dim = { .x = 0, .y = 0 };
+  hb_mc_dimension_t grid_dim = { .x = 1, .y = 1};
+  hb_mc_dimension_t tg_dim = { .x = 16, .y = 8 };
   hb_mc_dimension_t block_size = { .x = 0, .y = 0 };
 
-  grid_dim = { .x = 1, .y = 1};
-  tg_dim = { .x = 16, .y = 8 };
+//  grid_dim = { .x = 1, .y = 1};
+//  tg_dim = { .x = 16, .y = 8 };
 
 /*-----------------------------------------------------------------------------------------------------*/
 
 //prepare input arguments for kernel
 
-  uint32_t cuda_argv[3] = {vec_cpy_dev, hb_vec_dev, vec_length};
+  uint32_t cuda_argv[3] = {hb_vec_dev, hb_result_dev, input_length};
   int cuda_argc = 3;
 
   printf("hb_mc_kernel_enqueue\n");
@@ -130,21 +132,18 @@ err  = hb_mc_device_malloc(&device, vec_size, &hb_vec_dev);
 //copy result from device to host//
 
   printf("Copy device to Host.\n");
-  err |= hb_mc_device_memcpy (&device, (void*)(hb_vec), (void*)((intptr_t)hb_vec_dev),
-                         vec_size, HB_MC_MEMCPY_TO_HOST);
+  err |= hb_mc_device_memcpy (&device, (void*)(hb_result), (void*)((intptr_t)hb_result_dev),
+                         output_length * sizeof(int), HB_MC_MEMCPY_TO_HOST);
   if (err != HB_MC_SUCCESS) {
     printf("ERROR: failed to copy vector to host\n");
   }
 
-  for (int i =0; i < 3; i++) {
-    printf("hb_vec is %d.\n", hb_vec[i]);
-  }
+  printf("hb_result is %d.\n", hb_result[128]);
 
   int error;
 
-  printf("check_dense.\n");
-  error = check_result_correctness(host_vec, hb_vec);
-  printf("Result is %d\n", error );
+  error = check_result_correctness(host_result, hb_result);
+  printf("Error is %d\n", error );
 
   if (error != 0) {
     bsg_pr_test_err(BSG_RED("Mismatch. Error: %d\n"), error);
@@ -162,8 +161,10 @@ err  = hb_mc_device_malloc(&device, vec_size, &hb_vec_dev);
     return err;
   }
 
-  free(vec_cpy);
   free(hb_vec);
+  free(hb_result);
+  free(host_result);
+  free(host_vec);
 
   return HB_MC_SUCCESS;
 }

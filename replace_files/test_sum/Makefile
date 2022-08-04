@@ -63,7 +63,7 @@ CDEFINES       += $(CCPPDEFINES)
 
 FLAGS     = -g -Wall -Wno-unused-function -Wno-unused-variable
 CFLAGS   += -std=c99 $(FLAGS)
-CXXFLAGS += -std=c++14 $(FLAGS)
+CXXFLAGS += -std=c++11 $(FLAGS)
 
 # compilation.mk defines rules for compilation of C/C++
 include $(EXAMPLES_PATH)/compilation.mk
@@ -72,7 +72,7 @@ include $(EXAMPLES_PATH)/compilation.mk
 # Host code link flags and flow
 ###############################################################################
 
-LDFLAGS +=
+LDFLAGS += -L$(BSG_PLATFORM_PATH) -lbsgmc_cuda_legacy_pod_repl
 
 # link.mk defines rules for linking of the final execution binary.
 include $(EXAMPLES_PATH)/link.mk
@@ -83,21 +83,29 @@ include $(EXAMPLES_PATH)/link.mk
 
 # BSG_MANYCORE_KERNELS is a list of manycore executables that should
 # be built before executing.
-BSG_MANYCORE_KERNELS = $(KERNEL_PATH)/$(KERNEL_NAME)/main.riscv
-
+#BSG_MANYCORE_KERNELS = $(KERNEL_PATH)/$(KERNEL_NAME)/main.riscv
+BSG_MANYCORE_KERNELS = kernel.riscv
 # Tile Group Dimensions
 TILE_GROUP_DIM_X = $(BSG_MACHINE_GLOBAL_X)
 TILE_GROUP_DIM_Y = $(BSG_MACHINE_GLOBAL_Y)
 
-$(KERNEL_PATH)/$(KERNEL_NAME)/main.riscv: $(BSG_MACHINE_PATH)/Makefile.machine.include
-	BSG_MANYCORE_DIR=$(BSG_MANYCORE_DIR) \
-	BASEJUMP_STL_DIR=$(BASEJUMP_STL_DIR) \
-	BSG_IP_CORES_DIR=$(BASEJUMP_STL_DIR) \
-	IGNORE_CADENV=1 \
-	BSG_MACHINE_PATH=$(BSG_MACHINE_PATH) \
-	bsg_tiles_X=$(TILE_GROUP_DIM_X) \
-	bsg_tiles_Y=$(TILE_GROUP_DIM_Y) \
-	$(MAKE) -j1 -C $(KERNEL_PATH)/$(KERNEL_NAME) clean main.riscv
+kernel.riscv: kernel.rvo
+
+RISCV_DEFINES += -Dbsg_tiles_X=$(TILE_GROUP_DIM_X)
+RISCV_DEFINES += -Dbsg_tiles_Y=$(TILE_GROUP_DIM_Y)
+
+include $(EXAMPLES_PATH)/cuda/riscv.mk
+
+#$(KERNEL_PATH)/$(KERNEL_NAME)/main.riscv: $(BSG_MACHINE_PATH)/Makefile.machine.include
+#	BSG_MANYCORE_DIR=$(BSG_MANYCORE_DIR) \
+#	BASEJUMP_STL_DIR=$(BASEJUMP_STL_DIR) \
+#	BSG_IP_CORES_DIR=$(BASEJUMP_STL_DIR) \
+#	IGNORE_CADENV=1 \
+#	BSG_MACHINE_PATH=$(BSG_MACHINE_PATH) \
+#	bsg_tiles_X=$(TILE_GROUP_DIM_X) \
+#	bsg_tiles_Y=$(TILE_GROUP_DIM_Y) \
+#	$(MAKE) -j1 -C $(KERNEL_PATH)/$(KERNEL_NAME) clean main.riscv
+
 
 ###############################################################################
 # Execution flow
